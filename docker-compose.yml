@@ -1,0 +1,91 @@
+version: "3.8"
+
+services:
+
+  # Raw Data PostgreSQL
+  postgres:
+    image: postgres:15
+    container_name: postgres_db
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # ClickHouse for Analytics
+  clickhouse:
+    image: clickhouse/clickhouse-server
+    container_name: clickhouse_db
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+
+  # Metabase Dashboard
+  metabase:
+    image: metabase/metabase
+    container_name: metabase
+    ports:
+      - "3000:3000"
+
+  # Dagster PostgreSQL (Metadata)
+  dagster_postgres:
+    image: postgres:15
+    container_name: dagster_pg
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DAGSTER_DB_USER}
+      POSTGRES_PASSWORD: ${DAGSTER_DB_PASSWORD}
+      POSTGRES_DB: ${DAGSTER_DB_NAME}
+    ports:
+      - "5433:5432"
+    volumes:
+      - dagster_pg_data:/var/lib/postgresql/data
+
+  # Dagster Webserver (UI)
+  dagster_webserver:
+    image: python:3.10
+    container_name: dagster_webserver
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - ./dagster_project:/app
+    ports:
+      - "4000:4000"
+    depends_on:
+      - dagster_postgres
+    command: >
+      bash -c "pip install dagster dagster-webserver dagster-postgres psycopg2 pandas requests clickhouse-connect &&
+               dagster-webserver -h 0.0.0.0 -p 4000 -w workspace.yaml"
+
+  # Dagster Daemon (Background Jobs)
+  dagster_daemon:
+    image: python:3.10
+    container_name: dagster_daemon
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - ./dagster_project:/app
+    depends_on:
+      - dagster_postgres
+    command: >
+      bash -c "pip install dagster dagster-postgres psycopg2 pandas requests clickhouse-connect &&
+               dagster-daemon run"
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  dagster_pg_data:
